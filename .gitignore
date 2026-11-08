@@ -5,3 +5,4 @@ build
 *.dll
 .venv
 .pytest_cache
+.hypothesis

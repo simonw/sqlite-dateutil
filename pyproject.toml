@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest", "python-dateutil"]
+dev = ["hypothesis", "pytest", "python-dateutil"]
 
 [tool.uv]
 # Not a Python package: uv just manages the test environment.

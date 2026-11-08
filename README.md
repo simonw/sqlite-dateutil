@@ -81,6 +81,12 @@ raises. It covers:
 - The parser core built with **AddressSanitizer + UBSan** (`tools/du_cli.c`). This runs the
   same corpus against fixed default dates (Jan 31, Feb 29, 9999-12-28, ...) to test month-end
   clamping and weekday arithmetic, plus 20,000 random byte strings with invalid UTF-8.
+- Property-based tests with [Hypothesis](https://hypothesis.readthedocs.io/) (`tests/test_properties.py`):
+  arbitrary Unicode, token soup, real datetimes rendered in about 20 `strftime` formats, and fuzzy
+  sentences must all match dateutil. Any result must be valid ISO 8601 that parses back to itself,
+  and arbitrary BLOBs must never raise an error. Failures shrink to a minimal input. Run them for
+  longer with `HYPOTHESIS_PROFILE=thorough uv run pytest tests/test_properties.py`
+  (20,000 examples per property).
 - Limits on input size and running time, behavior in SQL queries, and the known differences below.
 
 During development, a further 1.35 million generated comparisons found zero mismatches with
