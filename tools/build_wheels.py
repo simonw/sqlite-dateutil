@@ -4,7 +4,7 @@ Package the compiled extension as Python wheels, using only the standard library
     python tools/build_wheels.py              # sqlite-dateutil wheel for this platform
     python tools/build_wheels.py --plugins    # datasette-/sqlite-utils- plugin wheels
     python tools/build_wheels.py --pyodide    # Pyodide wheel, latest ABI (needs emcc on PATH)
-    python tools/build_wheels.py --pyodide 2025_0   # Pyodide 0.28/0.29 (Emscripten 4.0.9)
+    python tools/build_wheels.py --pyodide 2025_0   # Pyodide 0.29.4+ (Emscripten 4.0.9)
     python tools/build_wheels.py --plat macosx_10_13_x86_64 --binary path/to/dateutil_parse.dylib
 
 Wheels are written to dist/ (override with --out). Names, version, summary,
@@ -72,7 +72,7 @@ if sys.platform == "emscripten":
     # older releases ship it inside the separate _sqlite3 shared library.
     #
     # SQLite passes the init function its table of API functions, but a
-    # SQLite built without load-extension support (Pyodide 0.28/0.29) passes
+    # SQLite built without load-extension support (Pyodide 0.29) passes
     # NULL. So hand the extension the address of every function it uses
     # first; tools/pyodide_shim.c falls back to those when the table is NULL.
     import ctypes
@@ -135,12 +135,15 @@ def load(conn: sqlite3.Connection) -> None:
 # Pyodide: a wheel only runs on the Pyodide ABI it was built for, and each
 # ABI pins one exact Emscripten version. Keep this in step with the Pyodide
 # matrix in .github/workflows/test.yml and tests/pyodide/package.json.
+#
+# Only PEP 783 pyemscripten_<ABI>_wasm32 tags: they are the only Emscripten
+# tags PyPI accepts, and micropip 0.11.1+ installs them. Pyodide releases with
+# an older micropip (0.28.x, and 0.29.0-0.29.3 in ABI 2025_0) reject them, so
+# they can't install from PyPI and aren't supported.
 PYODIDE_TARGETS = {
     # ABI: (Emscripten, wheel platform tag, Pyodide releases)
-    # 2025_0 uses the older pyodide_ tag: micropip in Pyodide 0.28 rejects the
-    # PEP 783 pyemscripten_2025_0 tag (0.29 accepts both).
-    "2025_0": ("4.0.9", "pyodide_2025_0_wasm32", "0.28/0.29"),
-    "2026_0": ("5.0.3", "pyemscripten_2026_0_wasm32", "314"),  # PEP 783 tag
+    "2025_0": ("4.0.9", "pyemscripten_2025_0_wasm32", "0.29.4+"),
+    "2026_0": ("5.0.3", "pyemscripten_2026_0_wasm32", "314"),
 }
 PYODIDE_LATEST = "2026_0"
 

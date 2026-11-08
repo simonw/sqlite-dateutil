@@ -55,7 +55,7 @@ jobs:
         # that ABI's exact Emscripten. The Pyodide release each is tested
         # against is pinned in tests/pyodide/package.json.
         include:
-          - abi: "2025_0"  # Pyodide 0.28/0.29
+          - abi: "2025_0"  # Pyodide 0.29.4+ (older micropip rejects PEP 783 tags)
             emscripten: "4.0.9"
             emsdk-commit: 3bcf1dcd01f040f370e10fe673a092d9ed79ebb5  # 4.0.9
           - abi: "2026_0"  # Pyodide 314

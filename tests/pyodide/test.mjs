@@ -11,9 +11,9 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const wheel = process.argv[2];
-const abi = wheel && basename(wheel).match(/-py(?:odide|emscripten)_(\d{4}_\d+)_wasm32\.whl$/)?.[1];
+const abi = wheel && basename(wheel).match(/-pyemscripten_(\d{4}_\d+)_wasm32\.whl$/)?.[1];
 if (!abi) {
-  console.error("usage: node test.mjs path/to/sqlite_dateutil-...-{pyodide,pyemscripten}_<ABI>_wasm32.whl");
+  console.error("usage: node test.mjs path/to/sqlite_dateutil-...-pyemscripten_<ABI>_wasm32.whl");
   process.exit(2);
 }
 const { loadPyodide } = await import(`pyodide-${abi}`);
@@ -32,7 +32,7 @@ const micropip = py.pyimport("micropip");
 await micropip.install(`emfs:${wheelPath}`); // checks the wheel's platform tag
 await micropip.install("python-dateutil");
 
-// Before Pyodide 314, sqlite3 is a separate Pyodide package. Check that
+// In Pyodide 0.29, sqlite3 is a separate Pyodide package. Check that
 // importing sqlite_dateutil without it explains what to do, then load it.
 const sqlite3BuiltIn = py.runPython("import importlib.util; importlib.util.find_spec('_sqlite3') is not None");
 if (!sqlite3BuiltIn) {

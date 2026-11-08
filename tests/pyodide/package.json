@@ -6,9 +6,9 @@
   "scripts": {
     "test": "node test.mjs"
   },
-  "//": "One Pyodide per ABI in tools/build_wheels.py PYODIDE_TARGETS; test.mjs picks by the wheel's tag",
+  "//": "One Pyodide per ABI in tools/build_wheels.py PYODIDE_TARGETS, the oldest supported release of each; test.mjs picks by the wheel's tag",
   "dependencies": {
-    "pyodide-2025_0": "npm:pyodide@0.29.5",
+    "pyodide-2025_0": "npm:pyodide@0.29.4",
     "pyodide-2026_0": "npm:pyodide@314.0.7"
   }
 }

@@ -3,7 +3,8 @@ name: Release
 # Publishing a GitHub release whose tag matches the version in pyproject.toml
 # builds a wheel per platform, tests each one on that platform, and uploads
 # them plus the Datasette and sqlite-utils plugin wheels to PyPI. The Pyodide
-# wheels are built and tested by test.yml (called below) and published last.
+# wheels are built and tested by test.yml (called below) and published with
+# the rest of sqlite-dateutil's wheels.
 #
 # PyPI uses trusted publishing: no token secret. Before the first release,
 # add a "pending publisher" on pypi.org for each of sqlite-dateutil,
@@ -123,20 +124,14 @@ jobs:
         run: |
           ls -l dist
           test "$(ls dist/sqlite_dateutil-*.whl | wc -l)" -eq 7  # 5 native + 2 Pyodide ABIs
+          if ls dist/*_wasm32.whl | grep -v -- '-pyemscripten_'; then
+            echo "PyPI only accepts PEP 783 pyemscripten_* tags for Pyodide wheels"
+            exit 1
+          fi
           uvx twine check --strict dist/*.whl
-      - name: Set the Pyodide wheels aside
-        run: mkdir pyodide && mv dist/*_wasm32.whl pyodide/
-      # The base package goes first so the plugins never point at a missing version.
+      # The base package (native and Pyodide wheels) goes first so the
+      # plugins never point at a missing version.
       - name: Publish
         run: |
           uv publish --trusted-publishing always dist/sqlite_dateutil-*.whl
           uv publish --trusted-publishing always dist/datasette_sqlite_dateutil-*.whl dist/sqlite_utils_sqlite_dateutil-*.whl
-      # Last and allowed to fail, so a PyPI that rejects a Pyodide wheel's
-      # tag can't block the main release. One step per wheel, so one being
-      # rejected doesn't stop the other.
-      - name: Publish Pyodide 314 wheel (pyemscripten_2026_0)
-        continue-on-error: true
-        run: uv publish --trusted-publishing always pyodide/*_2026_0_wasm32.whl
-      - name: Publish Pyodide 0.28/0.29 wheel (pyodide_2025_0)
-        continue-on-error: true
-        run: uv publish --trusted-publishing always pyodide/*_2025_0_wasm32.whl

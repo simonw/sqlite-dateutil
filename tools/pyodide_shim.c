@@ -5,8 +5,8 @@
  * In Pyodide the extension is registered with sqlite3_auto_extension()
  * through ctypes (see BASE_INIT_PY in tools/build_wheels.py). SQLite then
  * calls the init function with its table of API function pointers, except
- * that a SQLite built with SQLITE_OMIT_LOAD_EXTENSION (as in Pyodide 0.28
- * and 0.29) passes NULL. So Python looks up each function this extension
+ * that a SQLite built with SQLITE_OMIT_LOAD_EXTENSION (as in Pyodide 0.29)
+ * passes NULL. So Python looks up each function this extension
  * uses with ctypes, hands the addresses over through dateutil_pyodide_set_api(),
  * and dateutil_pyodide_init() falls back to that table when SQLite passes NULL.
  */
