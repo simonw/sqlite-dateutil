@@ -325,6 +325,53 @@ def build_base_wheel(project, binary, tag, out_dir):
         purelib=False)
 
 
+PLUGIN_FUNCTIONS = """\
+| SQL function | Python equivalent |
+| --- | --- |
+| `dateutil_parse(text)` | `parse(text).isoformat()` |
+| `dateutil_parse_fuzzy(text)` | `parse(text, fuzzy=True).isoformat()` |
+| `dateutil_parse_dayfirst(text)` | `parse(text, dayfirst=True).isoformat()` |
+| `dateutil_parse_fuzzy_dayfirst(text)` | `parse(text, fuzzy=True, dayfirst=True).isoformat()` |
+"""
+
+PLUGIN_EXAMPLES = {
+    "datasette": """\
+Once installed, the functions are available in every SQL query, for example:
+
+```sql
+select dateutil_parse('Thu, 25 Sep 2003 10:49:41 -0300');
+-- 2003-09-25T10:49:41-03:00
+```
+""",
+    "sqlite-utils": """\
+Once installed, the functions are available to `sqlite-utils query` and `sqlite-utils memory`:
+
+```bash
+sqlite-utils memory "select dateutil_parse_fuzzy('Today is January 1, 2047 at 8:21:00AM') as d"
+# [{"d": "2047-01-01T08:21:00"}]
+```
+
+They are also available to Python code that uses `sqlite_utils.Database()`.
+""",
+}
+
+
+def plugin_description(project, prefix, name, summary):
+    repo = project.get("urls", {}).get("Homepage") or project["name"]
+    return (
+        f"# {name}\n\n"
+        f"{summary}. [{project['name']}]({repo}) is a C port of "
+        "[python-dateutil](https://github.com/dateutil/dateutil)'s `parser.parse()`, "
+        "about 38x faster than calling dateutil from Python.\n\n"
+        f"## Installation\n\n```bash\n{prefix} install {name}\n```\n\n"
+        f"## Usage\n\n{PLUGIN_EXAMPLES[prefix]}\n"
+        "Each function returns an ISO 8601 string, or `NULL` where dateutil would raise an "
+        "exception:\n\n"
+        f"{PLUGIN_FUNCTIONS}\n"
+        f"See the [{project['name']} documentation]({repo}) for details and the known "
+        "differences from dateutil.\n")
+
+
 def build_plugin_wheel(project, prefix, out_dir):
     framework_module, group, label = PLUGINS[prefix]
     name = f"{prefix}-{project['name']}"
@@ -333,10 +380,7 @@ def build_plugin_wheel(project, prefix, out_dir):
     wheel.add(f"{pkg}/__init__.py", PLUGIN_INIT_PY.format(
         framework_module=framework_module, version=project["version"]))
     summary = f"{label} plugin that loads the {project['name']} SQLite extension"
-    repo = project.get("urls", {}).get("Homepage", "")
-    description = (
-        f"# {name}\n\n{summary}, adding `dateutil_parse()` and related SQL functions.\n\n"
-        f"See {repo or project['name']} for documentation.\n")
+    description = plugin_description(project, prefix, name, summary)
     return wheel.finish(out_dir, metadata(
         project, name, summary,
         requires=[prefix, f"{project['name']}=={project['version']}"],
