@@ -4,6 +4,7 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:  # run by release.yml before it builds wheels
 
 permissions:
   contents: read

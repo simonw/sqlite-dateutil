@@ -4,7 +4,15 @@ version = "0.1"
 description = "A SQLite extension porting dateutil.parser.parse() to C"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "Simon Willison"}]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/simonw/sqlite-dateutil"
+Issues = "https://github.com/simonw/sqlite-dateutil/issues"
+Changelog = "https://github.com/simonw/sqlite-dateutil/releases"
+CI = "https://github.com/simonw/sqlite-dateutil/actions"
 
 [dependency-groups]
 dev = ["hypothesis", "pytest", "python-dateutil"]

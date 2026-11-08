@@ -29,6 +29,36 @@ Where dateutil raises an exception, these functions return `NULL`. Missing field
 today's local date at midnight, as in dateutil (so `dateutil_parse('10:30')` is today at 10:30).
 That also means the functions aren't marked deterministic.
 
+## Installation
+
+The extension is packaged for Python, with prebuilt wheels for macOS (Apple Silicon and
+Intel), Linux (x86_64 and aarch64) and Windows (x64):
+
+```bash
+pip install sqlite-dateutil
+```
+
+```python
+import sqlite3
+import sqlite_dateutil
+
+db = sqlite3.connect(":memory:")
+sqlite_dateutil.load(db)
+print(db.execute("select dateutil_parse('Sep 25 2003 5pm')").fetchone()[0])
+# 2003-09-25T17:00:00
+```
+
+`load()` turns extension loading on just long enough to load the extension, then turns it
+off again. `sqlite_dateutil.loadable_path()` gives the path to the bundled library for use
+with other tools.
+
+There are also plugins that add the functions to every connection:
+
+```bash
+datasette install datasette-sqlite-dateutil
+sqlite-utils install sqlite-utils-sqlite-dateutil
+```
+
 ## Building
 
 ```bash
@@ -138,7 +168,26 @@ dateutil_unicode.h      generated character-class table
 tools/gen_unicode.py    regenerates the table from Python's Unicode data
 tools/du_cli.c          SQLite-free driver used for sanitizer tests
 tools/build.py          cross-platform build script (used by the tests)
+tools/build_wheels.py   packages the built extension as wheels, plus the plugin wheels
 fuzz/                   libFuzzer harness, dictionary and seed generator
 vendor/sqlite/          SQLite 3.53.2 public-domain headers
-tests/                  pytest differential test suite
+tests/                  pytest differential test suite, plus wheel packaging tests
 ```
+
+## Releasing
+
+Bump `version` in `pyproject.toml`, then publish a GitHub release with that version as its
+tag. `.github/workflows/release.yml` runs the tests, builds a wheel on each platform
+(in the `manylinux_2_28` images on Linux), installs and tests each one, then uploads them and
+the two plugin wheels to PyPI through trusted publishing.
+
+To build wheels locally:
+
+```bash
+uv run python tools/build_wheels.py            # this platform, into dist/
+uv run python tools/build_wheels.py --plugins  # datasette- and sqlite-utils- plugins
+```
+
+On macOS the wheel targets macOS 11 (arm64) or 10.13 (x86_64), unless
+`MACOSX_DEPLOYMENT_TARGET` says otherwise. The script refuses to package a binary built for
+a newer macOS than its wheel tag claims.
