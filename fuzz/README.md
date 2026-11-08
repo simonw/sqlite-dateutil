@@ -7,7 +7,7 @@ to parse. Besides crashes and sanitizer errors, it checks that every result is w
 ISO 8601, that parsing is deterministic, and that the result parses back to itself.
 
 CI (`.github/workflows/fuzz.yml`) fuzzes for 3 minutes on every push and pull request, and
-for 30 minutes nightly. It keeps a minimized corpus in the Actions cache and uploads any
+for 30 minutes daily if `main` has had a commit in the last 24 hours. It keeps a minimized corpus in the Actions cache and uploads any
 crashing input as the `fuzz-crashes` artifact.
 
 ## Running it locally

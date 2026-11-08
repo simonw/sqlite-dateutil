@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "17 6 * * *"   # nightly long run
+    - cron: "17 6 * * *"   # daily, skipped unless main changed in the last 24h
   workflow_dispatch:
     inputs:
       seconds:
@@ -16,16 +16,43 @@ permissions:
   contents: read
 
 concurrency:
-  group: fuzz-${{ github.ref }}
+  # Separate groups so a push to main never cancels the long daily run
+  group: fuzz-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changed:
+    name: Commits to main in the last 24h?
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      recent: ${{ steps.check.outputs.recent }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - id: check
+        # The tip of main has the newest committer date, so one commit is enough
+        run: |
+          last=$(git log -1 --format=%ct)
+          age=$(( $(date +%s) - last ))
+          echo "Last commit to main: $(git log -1 --format='%h %ci'), ${age}s ago"
+          if [ "$age" -lt 86400 ]; then
+            echo "recent=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recent=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No commits to main in the last 24 hours; skipping the daily fuzz run"
+          fi
+
   libfuzzer:
     name: libFuzzer (ASan + UBSan)
+    needs: changed
+    # `changed` only runs on schedule; other events see it as skipped
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changed.outputs.recent == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # 3 min on pushes/PRs, 30 min nightly, or whatever was asked for
+      # 3 min on pushes/PRs, 30 min daily, or whatever was asked for
       SECONDS_TO_FUZZ: ${{ github.event_name == 'schedule' && '1800' || github.event.inputs.seconds || '180' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

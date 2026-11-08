@@ -152,7 +152,7 @@ raises. It covers:
 - Limits on input size and running time, behavior in SQL queries, and the known differences below.
 
 The parser core is also fuzzed with libFuzzer + ASan + UBSan on Linux, for 3 minutes on every
-push and 30 minutes nightly in CI. See [fuzz/README.md](fuzz/README.md).
+push, and for 30 minutes daily if `main` has changed in the last 24 hours. See [fuzz/README.md](fuzz/README.md).
 
 During development, a further 1.35 million generated comparisons found zero mismatches with
 dateutil 2.9.0.
