@@ -1,4 +1,4 @@
-# sqlite-dateutil-parse
+# sqlite-dateutil
 
 A SQLite extension, written in C, that ports [python-dateutil](https://github.com/dateutil/dateutil)'s
 `dateutil.parser.parse()` to a set of SQL functions.
