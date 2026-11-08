@@ -3,7 +3,7 @@ name: Release
 # Publishing a GitHub release whose tag matches the version in pyproject.toml
 # builds a wheel per platform, tests each one on that platform, and uploads
 # them plus the Datasette and sqlite-utils plugin wheels to PyPI. The Pyodide
-# wheel is built and tested by test.yml (called below) and published last.
+# wheels are built and tested by test.yml (called below) and published last.
 #
 # PyPI uses trusted publishing: no token secret. Before the first release,
 # add a "pending publisher" on pypi.org for each of sqlite-dateutil,
@@ -88,7 +88,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [test, wheels]  # test also builds and checks the Pyodide wheel
+    needs: [test, wheels]  # test also builds and checks the Pyodide wheels
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: release
@@ -120,17 +120,21 @@ jobs:
       - name: Check wheels
         run: |
           ls -l dist
-          test "$(ls dist/sqlite_dateutil-*.whl | wc -l)" -eq 6  # 5 native + Pyodide
+          test "$(ls dist/sqlite_dateutil-*.whl | wc -l)" -eq 7  # 5 native + 2 Pyodide ABIs
           uvx twine check --strict dist/*.whl
-      - name: Set the Pyodide wheel aside
-        run: mkdir pyodide && mv dist/*-pyemscripten_*.whl pyodide/
+      - name: Set the Pyodide wheels aside
+        run: mkdir pyodide && mv dist/*_wasm32.whl pyodide/
       # The base package goes first so the plugins never point at a missing version.
       - name: Publish
         run: |
           uv publish --trusted-publishing always dist/sqlite_dateutil-*.whl
           uv publish --trusted-publishing always dist/datasette_sqlite_dateutil-*.whl dist/sqlite_utils_sqlite_dateutil-*.whl
-      # Last and allowed to fail, so a PyPI that rejects the PEP 783 tag
-      # can't block the main release.
-      - name: Publish Pyodide wheel
+      # Last and allowed to fail, so a PyPI that rejects a Pyodide wheel's
+      # tag can't block the main release. One step per wheel, so one being
+      # rejected doesn't stop the other.
+      - name: Publish Pyodide 314 wheel (pyemscripten_2026_0)
         continue-on-error: true
-        run: uv publish --trusted-publishing always pyodide/*.whl
+        run: uv publish --trusted-publishing always pyodide/*_2026_0_wasm32.whl
+      - name: Publish Pyodide 0.28/0.29 wheel (pyodide_2025_0)
+        continue-on-error: true
+        run: uv publish --trusted-publishing always pyodide/*_2025_0_wasm32.whl

@@ -1,12 +1,14 @@
 {
   "name": "sqlite-dateutil-pyodide-test",
   "private": true,
-  "description": "Installs the Pyodide wheel with micropip under Node and runs the differential cases against python-dateutil",
+  "description": "Installs a Pyodide wheel with micropip under Node and runs the differential cases against python-dateutil",
   "type": "module",
   "scripts": {
     "test": "node test.mjs"
   },
+  "//": "One Pyodide per ABI in tools/build_wheels.py PYODIDE_TARGETS; test.mjs picks by the wheel's tag",
   "dependencies": {
-    "pyodide": "314.0.7"
+    "pyodide-2025_0": "npm:pyodide@0.29.5",
+    "pyodide-2026_0": "npm:pyodide@314.0.7"
   }
 }

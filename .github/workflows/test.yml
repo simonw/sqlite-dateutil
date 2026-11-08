@@ -46,8 +46,25 @@ jobs:
         run: uv run pytest -rs
 
   pyodide:
-    name: Pyodide wheel
+    name: Pyodide wheel (ABI ${{ matrix.abi }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per PYODIDE_TARGETS ABI in tools/build_wheels.py, with
+        # that ABI's exact Emscripten. The Pyodide release each is tested
+        # against is pinned in tests/pyodide/package.json.
+        include:
+          - abi: "2025_0"  # Pyodide 0.28/0.29
+            emscripten: "4.0.9"
+            emsdk-commit: 3bcf1dcd01f040f370e10fe673a092d9ed79ebb5  # 4.0.9
+          - abi: "2026_0"  # Pyodide 314
+            emscripten: "5.0.3"
+            emsdk-commit: a620cf1d71c62dfdfbb0c01fe0a371e2af2dda6c  # 5.0.3
+    env:
+      EMSCRIPTEN: ${{ matrix.emscripten }}
+      EMSDK_COMMIT: ${{ matrix.emsdk-commit }}
+      ABI: ${{ matrix.abi }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -58,25 +75,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "24"
-      # Must match the Emscripten of the Pyodide ABI in tools/build_wheels.py.
-      - name: Install Emscripten 5.0.3
+      - name: Install Emscripten ${{ matrix.emscripten }}
         run: |
           git clone --quiet https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
-          git -C "$RUNNER_TEMP/emsdk" checkout --quiet a620cf1d71c62dfdfbb0c01fe0a371e2af2dda6c  # 5.0.3
-          "$RUNNER_TEMP/emsdk/emsdk" install 5.0.3
-          "$RUNNER_TEMP/emsdk/emsdk" activate 5.0.3
+          git -C "$RUNNER_TEMP/emsdk" checkout --quiet "$EMSDK_COMMIT"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSCRIPTEN"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSCRIPTEN"
       - name: Build Pyodide wheel
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          uv run --no-project python tools/build_wheels.py --pyodide
+          uv run --no-project python tools/build_wheels.py --pyodide "$ABI"
       - name: Install with micropip and compare with python-dateutil
         working-directory: tests/pyodide
         run: |
           npm ci --no-audit --no-fund
-          node test.mjs ../../dist/sqlite_dateutil-*-pyemscripten_*.whl
-      # release.yml calls this workflow and publishes this tested wheel.
+          node test.mjs ../../dist/sqlite_dateutil-*_"$ABI"_wasm32.whl
+      # release.yml calls this workflow and publishes these tested wheels.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: wheel-pyodide
+          name: wheel-pyodide-${{ matrix.abi }}
           path: dist/*.whl
           if-no-files-found: error

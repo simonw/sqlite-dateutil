@@ -3,6 +3,7 @@ import base64
 import email.parser
 import hashlib
 import importlib
+import re
 import sqlite3
 import sys
 import zipfile
@@ -121,18 +122,34 @@ def test_rejects_macos_tag_older_than_binary(project, tmp_path):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses a shell script as a fake emcc")
-def test_pyodide_requires_matching_emscripten(tmp_path, monkeypatch):
+@pytest.mark.parametrize("abi", sorted(build_wheels.PYODIDE_TARGETS))
+def test_pyodide_requires_matching_emscripten(tmp_path, monkeypatch, abi):
     fake = tmp_path / "emcc"
-    fake.write_text("#!/bin/sh\necho 'emcc (Emscripten gcc/clang-like replacement) 4.0.1 (abc)'\n")
+    fake.write_text("#!/bin/sh\necho 'emcc (Emscripten gcc/clang-like replacement) 3.0.0 (abc)'\n")
     fake.chmod(0o755)
     monkeypatch.setenv("EMCC", str(fake))
-    with pytest.raises(SystemExit, match=f"needs Emscripten {build_wheels.PYODIDE_EMSCRIPTEN}"):
-        build_wheels.build_pyodide_binary()
+    emscripten = build_wheels.PYODIDE_TARGETS[abi][0]
+    with pytest.raises(SystemExit, match=f"ABI {abi} needs Emscripten {emscripten}"):
+        build_wheels.build_pyodide_binary(abi)
 
 
-def test_pyodide_wheel_tag(project, tmp_path):
-    path = build_wheels.build_base_wheel(project, build.EXT_PATH, build_wheels.PYODIDE_TAG, tmp_path)
-    assert path.name.endswith(f"-py3-none-pyemscripten_{build_wheels.PYODIDE_ABI}_wasm32.whl")
+@pytest.mark.parametrize("abi", sorted(build_wheels.PYODIDE_TARGETS))
+def test_pyodide_wheel_tag(project, tmp_path, abi):
+    tag = build_wheels.PYODIDE_TARGETS[abi][1]
+    assert tag.endswith(f"_{abi}_wasm32")
+    path = build_wheels.build_base_wheel(project, build.EXT_PATH, tag, tmp_path)
+    assert path.name.endswith(f"-py3-none-{tag}.whl")
     init = read_wheel(path)["sqlite_dateutil/__init__.py"].decode()
     assert f'loadable_path() + "{build.EXT_PATH.suffix}"' in init
     assert "sqlite3_auto_extension" in init
+    assert "dateutil_pyodide_init" in init
+
+
+def test_pyodide_shim_covers_every_sqlite_call():
+    """tools/pyodide_shim.c must list every sqlite3_* function the extension calls."""
+    source = (build_wheels.ROOT / "dateutil_parse.c").read_text()
+    shim = (build_wheels.ROOT / "tools" / "pyodide_shim.c").read_text()
+    called = set(re.findall(r"\bsqlite3_([a-z0-9_]+)\s*\(", source)) - {"dateutilparse_init"}
+    called |= set(re.findall(r"\bsqlite3_(free)\b", source))  # passed as a destructor
+    listed = set(re.findall(r"^\s*X\(([a-z0-9_]+)\)", shim, re.M))
+    assert called <= listed, f"add to DATEUTIL_API in tools/pyodide_shim.c: {sorted(called - listed)}"

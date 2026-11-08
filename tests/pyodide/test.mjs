@@ -1,24 +1,27 @@
-// Install the Pyodide wheel with micropip, as a Pyodide user would, then check it:
+// Install a Pyodide wheel with micropip, as a Pyodide user would, then check it:
 //
-//   cd tests/pyodide && npm ci && node test.mjs ../../dist/sqlite_dateutil-*-pyemscripten_*.whl
+//   cd tests/pyodide && npm ci && node test.mjs ../../dist/sqlite_dateutil-*-pyemscripten_2026_0_wasm32.whl
 //
-// Runs every hand-picked case in tests/test_dateutil_parse.py through all four
-// SQL functions and compares the results with python-dateutil running in Pyodide.
+// The Pyodide release comes from the ABI in the wheel's tag (pyodide-<ABI> in
+// package.json). Runs every hand-picked case in tests/test_dateutil_parse.py
+// through all four SQL functions and compares them with python-dateutil
+// running in the same Pyodide.
 import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadPyodide } from "pyodide";
 
 const wheel = process.argv[2];
-if (!wheel) {
-  console.error("usage: node test.mjs path/to/sqlite_dateutil-...-pyemscripten_...whl");
+const abi = wheel && basename(wheel).match(/-py(?:odide|emscripten)_(\d{4}_\d+)_wasm32\.whl$/)?.[1];
+if (!abi) {
+  console.error("usage: node test.mjs path/to/sqlite_dateutil-...-{pyodide,pyemscripten}_<ABI>_wasm32.whl");
   process.exit(2);
 }
+const { loadPyodide } = await import(`pyodide-${abi}`);
 const here = dirname(fileURLToPath(import.meta.url));
 const cases = readFileSync(join(here, "..", "test_dateutil_parse.py"), "utf8");
 
 const py = await loadPyodide();
-console.log(`Pyodide ${py.version}`);
+console.log(`Pyodide ${py.version} (ABI ${abi})`);
 py.FS.mkdirTree("/wheels");
 const wheelPath = `/wheels/${basename(wheel)}`;
 py.FS.writeFile(wheelPath, readFileSync(wheel));
@@ -28,6 +31,24 @@ await py.loadPackage("micropip");
 const micropip = py.pyimport("micropip");
 await micropip.install(`emfs:${wheelPath}`); // checks the wheel's platform tag
 await micropip.install("python-dateutil");
+
+// Before Pyodide 314, sqlite3 is a separate Pyodide package. Check that
+// importing sqlite_dateutil without it explains what to do, then load it.
+const sqlite3BuiltIn = py.runPython("import importlib.util; importlib.util.find_spec('_sqlite3') is not None");
+if (!sqlite3BuiltIn) {
+  const message = py.runPython(`
+try:
+    import sqlite_dateutil
+except ModuleNotFoundError as e:
+    message = str(e)
+else:
+    raise AssertionError("importing without sqlite3 should fail")
+message`);
+  if (!message.includes("micropip.install('sqlite3')")) throw new Error(`unhelpful error: ${message}`);
+  py.runPython("import sys; [sys.modules.pop(m) for m in list(sys.modules) if m.startswith('sqlite_dateutil')]");
+  await micropip.install("sqlite3");
+  console.log("sqlite3 loaded separately, after checking the missing-sqlite3 error");
+}
 
 const result = py.runPython(`
 import ast, sqlite3, warnings

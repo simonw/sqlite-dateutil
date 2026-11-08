@@ -54,15 +54,22 @@ with other tools.
 
 ### Pyodide
 
-There's also a wheel for [Pyodide](https://pyodide.org/) 314.x (the PEP 783
-`pyemscripten_2026_0_wasm32` tag). Pyodide's `sqlite3` module can't load extensions, so in
-Pyodide `import sqlite_dateutil` registers the functions with SQLite's
-`sqlite3_auto_extension()` instead. Every connection opened **after the import** has them, and
-`load(conn)` just checks that:
+There are also wheels for [Pyodide](https://pyodide.org/):
+
+| Pyodide | Wheel tag |
+| --- | --- |
+| 314.x | `pyemscripten_2026_0_wasm32` |
+| 0.28.x, 0.29.x | `pyodide_2025_0_wasm32` |
+
+Pyodide's `sqlite3` module can't load extensions, so in Pyodide `import sqlite_dateutil`
+registers the functions with SQLite's `sqlite3_auto_extension()` instead. Every connection
+opened **after the import** has them, and `load(conn)` just checks that:
 
 ```python
 import micropip
 await micropip.install("sqlite-dateutil")
+# Pyodide 0.28/0.29 only: sqlite3 is a separate package there
+# await micropip.install("sqlite3")
 
 import sqlite3
 import sqlite_dateutil  # import before connecting
@@ -71,8 +78,11 @@ db = sqlite3.connect(":memory:")
 print(db.execute("select dateutil_parse('Sep 25 2003 5pm')").fetchone()[0])
 ```
 
-Pyodide links in SQLite 3.39.0, older than the headers in `vendor/sqlite`, but the
-extension only uses APIs that SQLite had long before that version.
+All of these Pyodide releases link in SQLite 3.39.0, older than the headers in
+`vendor/sqlite`, but the extension only uses APIs that SQLite had long before that version.
+Pyodide 0.28/0.29 build SQLite without load-extension support, so SQLite hands extensions no
+table of its API functions. `tools/pyodide_shim.c` gets those function addresses from Python
+instead.
 
 There are also plugins that add the functions to every connection:
 
@@ -194,7 +204,8 @@ tools/build_wheels.py   packages the built extension as wheels, plus the plugin 
 fuzz/                   libFuzzer harness, dictionary and seed generator
 vendor/sqlite/          SQLite 3.53.2 public-domain headers
 tests/                  pytest differential test suite, plus wheel packaging tests
-tests/pyodide/          installs the Pyodide wheel with micropip under Node and checks it
+tests/pyodide/          installs each Pyodide wheel with micropip under Node and checks it
+tools/pyodide_shim.c    Pyodide entry point that copes with SQLite built without extension support
 ```
 
 ## Releasing
@@ -215,16 +226,22 @@ On macOS the wheel targets macOS 11 (arm64) or 10.13 (x86_64), unless
 `MACOSX_DEPLOYMENT_TARGET` says otherwise. The script refuses to package a binary built for
 a newer macOS than its wheel tag claims.
 
-The Pyodide wheel needs the exact Emscripten version that Pyodide's ABI uses (5.0.3 for
-Pyodide 314.x; see `PYODIDE_*` in `tools/build_wheels.py`):
+Each Pyodide wheel needs the exact Emscripten version its Pyodide ABI uses (see
+`PYODIDE_TARGETS` in `tools/build_wheels.py`): 4.0.9 for ABI `2025_0` (Pyodide 0.28/0.29),
+5.0.3 for `2026_0` (Pyodide 314). With that Emscripten active:
 
 ```bash
-./emsdk install 5.0.3 && ./emsdk activate 5.0.3 && source ./emsdk_env.sh
-uv run python tools/build_wheels.py --pyodide
-cd tests/pyodide && npm ci && node test.mjs ../../dist/sqlite_dateutil-*-pyemscripten_*.whl
+uv run python tools/build_wheels.py --pyodide 2026_0   # or 2025_0
+cd tests/pyodide && npm ci && node test.mjs ../../dist/sqlite_dateutil-*_2026_0_wasm32.whl
 ```
 
-`tests/pyodide/test.mjs` installs the wheel with micropip in Pyodide under Node. It then
-checks every hand-picked case against python-dateutil running there too. CI runs it on every
-push. A new Pyodide ABI means bumping `PYODIDE_ABI`, `PYODIDE_EMSCRIPTEN`, the emsdk
-commit in `test.yml` and the `pyodide` version in `tests/pyodide/package.json` together.
+emsdk keeps one active version per checkout, so use a separate emsdk directory for each, or
+point `EMCC` at the right `upstream/emscripten/emcc`.
+
+`tests/pyodide/test.mjs` picks the Pyodide release from the wheel's tag, installs the wheel
+with micropip under Node, and checks every hand-picked case against python-dateutil running
+in that Pyodide. On 0.28/0.29 it also checks that importing without `sqlite3` explains what
+to do. CI runs it for every ABI on every push. Adding a Pyodide ABI means a new
+`PYODIDE_TARGETS` entry, a matching entry in the `test.yml` Pyodide matrix (with its emsdk
+commit), a `pyodide-<ABI>` alias in `tests/pyodide/package.json`, and the wheel count and
+publish step in `release.yml`.
