@@ -1,0 +1,140 @@
+name: Release
+
+# Publishing a GitHub release whose tag matches the version in pyproject.toml
+# builds a wheel per platform, tests each one on that platform, and uploads
+# them plus the Datasette and sqlite-utils plugin wheels to PyPI. The Pyodide
+# wheels are built and tested by test.yml (called below) and published last.
+#
+# PyPI uses trusted publishing: no token secret. Before the first release,
+# add a "pending publisher" on pypi.org for each of sqlite-dateutil,
+# datasette-sqlite-dateutil and sqlite-utils-sqlite-dateutil with
+# owner simonw, repository sqlite-dateutil, workflow release.yml,
+# environment release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # builds and tests the wheels; publishing only runs for releases
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  wheels:
+    name: Wheel ${{ matrix.name }}
+    needs: [test]
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            macos-target: "11.0"
+          - name: macos-x86_64
+            os: macos-15-intel
+            macos-target: "10.13"
+          # Building inside the manylinux images makes the manylinux_2_28 tag
+          # true: the binary can't pick up symbols newer than glibc 2.28.
+          - name: linux-x86_64
+            os: ubuntu-latest
+            # latest as of 2026-11-07
+            container: quay.io/pypa/manylinux_2_28_x86_64@sha256:9555ba6c479fa69a2aa80ad1dc57154a60d562b19df159361d9379a02beb1e36
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64@sha256:cb37f0d66c8a75abb93cf6085cad1f1427cd7208f0c0fc48359bb1eea9924f21
+          - name: windows-x86_64
+            os: windows-latest
+            msvc: true
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-target }}
+      UV_PYTHON: "3.13"  # uv-managed everywhere (pyproject sets only-managed)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      - name: Put MSVC on PATH
+        if: matrix.msvc
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1.13.0
+      - name: Build wheel
+        run: uv run --no-project python tools/build_wheels.py
+      - name: Check the binary only needs old glibc symbols
+        if: matrix.container
+        run: auditwheel show dist/*.whl
+      - name: Install the wheel and use it
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python -c "
+          import sqlite3, sqlite_dateutil
+          db = sqlite3.connect(':memory:')
+          sqlite_dateutil.load(db)
+          got = db.execute(\"select dateutil_parse('Thu, 25 Sep 2003 10:49:41 -0300')\").fetchone()[0]
+          assert got == '2003-09-25T10:49:41-03:00', got
+          print(sqlite_dateutil.loadable_path(), got)
+          "
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: [test, wheels]  # test also builds and checks the Pyodide wheels
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write  # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          python-version: "3.13"
+      - name: Check the release tag matches pyproject.toml
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "Release tag $TAG does not match pyproject.toml version $VERSION"
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: Build plugin wheels
+        run: uv run --no-project python tools/build_wheels.py --plugins
+      - name: Check wheels
+        run: |
+          ls -l dist
+          test "$(ls dist/sqlite_dateutil-*.whl | wc -l)" -eq 7  # 5 native + 2 Pyodide ABIs
+          uvx twine check --strict dist/*.whl
+      - name: Set the Pyodide wheels aside
+        run: mkdir pyodide && mv dist/*_wasm32.whl pyodide/
+      # The base package goes first so the plugins never point at a missing version.
+      - name: Publish
+        run: |
+          uv publish --trusted-publishing always dist/sqlite_dateutil-*.whl
+          uv publish --trusted-publishing always dist/datasette_sqlite_dateutil-*.whl dist/sqlite_utils_sqlite_dateutil-*.whl
+      # Last and allowed to fail, so a PyPI that rejects a Pyodide wheel's
+      # tag can't block the main release. One step per wheel, so one being
+      # rejected doesn't stop the other.
+      - name: Publish Pyodide 314 wheel (pyemscripten_2026_0)
+        continue-on-error: true
+        run: uv publish --trusted-publishing always pyodide/*_2026_0_wasm32.whl
+      - name: Publish Pyodide 0.28/0.29 wheel (pyodide_2025_0)
+        continue-on-error: true
+        run: uv publish --trusted-publishing always pyodide/*_2025_0_wasm32.whl
