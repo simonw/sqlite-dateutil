@@ -5,6 +5,8 @@ on macOS, Linux and Windows using only the standard library.
     python tools/build.py           # build the extension if out of date
     python tools/build.py --force   # always rebuild
     python tools/build.py --asan    # also build build/du_cli_asan
+    python tools/build.py --fuzz    # also build build/fuzz_parse (libFuzzer)
+    python tools/build.py --fuzz-replay   # build/fuzz_replay (any ASan compiler)
 
 The test suite calls this automatically, so `uv run pytest` is enough.
 
@@ -43,6 +45,11 @@ else:
 # Same path the README documents: `.load ./dateutil_parse`
 EXT_PATH = ROOT / f"dateutil_parse{EXT_SUFFIX}"
 ASAN_PATH = BUILD / f"du_cli_asan{EXE_SUFFIX}"
+FUZZ_PATH = BUILD / f"fuzz_parse{EXE_SUFFIX}"
+REPLAY_PATH = BUILD / f"fuzz_replay{EXE_SUFFIX}"
+FUZZ_SOURCES = SOURCES + [ROOT / "fuzz" / "fuzz_parse.c"]
+SANITIZE = ["-g", "-O1", "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
 
 WARNINGS = ["-Wall", "-Wextra", "-Wshadow", "-Wconversion", "-Wno-sign-conversion"]
 
@@ -122,24 +129,73 @@ def build_asan(force=False, verbose=False):
     if msvc:
         raise BuildError("The sanitizer driver needs gcc or clang (MSVC has no UBSan).")
     BUILD.mkdir(exist_ok=True)
-    argv = cc + ["-O1", "-g", "-fsanitize=address,undefined",
-                 "-fno-sanitize-recover=all", "-fno-omit-frame-pointer",
-                 str(ROOT / "tools" / "du_cli.c"), "-o", str(ASAN_PATH)]
+    argv = cc + SANITIZE + [str(ROOT / "tools" / "du_cli.c"), "-o", str(ASAN_PATH)]
     if verbose:
         print(" ".join(map(str, argv)))
     _run(argv)
     return ASAN_PATH
 
 
+def find_fuzz_compiler():
+    """A clang that ships libFuzzer: $FUZZ_CC, Homebrew LLVM, or clang on PATH.
+    (Apple's clang does not include libFuzzer.)"""
+    if os.environ.get("FUZZ_CC"):
+        return shlex.split(os.environ["FUZZ_CC"])
+    for prefix in ("/opt/homebrew/opt/llvm", "/usr/local/opt/llvm"):
+        clang = pathlib.Path(prefix) / "bin" / "clang"
+        if sys.platform == "darwin" and clang.exists():
+            return [str(clang)]
+    clang = shutil.which("clang")
+    if clang is None:
+        raise BuildError("libFuzzer needs clang (on macOS: `brew install llvm`), or set FUZZ_CC.")
+    return [clang]
+
+
+def build_fuzz(force=False, verbose=False):
+    """Build the libFuzzer harness fuzz/fuzz_parse.c with ASan + UBSan."""
+    if not force and not _stale(FUZZ_PATH, FUZZ_SOURCES):
+        return FUZZ_PATH
+    BUILD.mkdir(exist_ok=True)
+    argv = find_fuzz_compiler() + SANITIZE + [
+        "-fsanitize=fuzzer", str(ROOT / "fuzz" / "fuzz_parse.c"), "-o", str(FUZZ_PATH)]
+    if verbose:
+        print(" ".join(map(str, argv)))
+    _run(argv)
+    return FUZZ_PATH
+
+
+def build_fuzz_replay(force=False, verbose=False):
+    """Build fuzz/replay.c: runs the harness on files, no libFuzzer needed."""
+    deps = FUZZ_SOURCES + [ROOT / "fuzz" / "replay.c"]
+    if not force and not _stale(REPLAY_PATH, deps):
+        return REPLAY_PATH
+    cc, msvc = find_compiler()
+    if msvc:
+        raise BuildError("The replay driver needs gcc or clang.")
+    BUILD.mkdir(exist_ok=True)
+    argv = cc + SANITIZE + [str(ROOT / "fuzz" / "replay.c"), "-o", str(REPLAY_PATH)]
+    if verbose:
+        print(" ".join(map(str, argv)))
+    _run(argv)
+    return REPLAY_PATH
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("--force", action="store_true", help="rebuild even if up to date")
     parser.add_argument("--asan", action="store_true", help="also build the sanitizer driver")
+    parser.add_argument("--fuzz", action="store_true", help="also build the libFuzzer harness")
+    parser.add_argument("--fuzz-replay", action="store_true",
+                        help="also build the fuzz input replay driver")
     args = parser.parse_args()
     try:
         print(build_extension(force=args.force, verbose=True))
         if args.asan:
             print(build_asan(force=args.force, verbose=True))
+        if args.fuzz:
+            print(build_fuzz(force=args.force, verbose=True))
+        if args.fuzz_replay:
+            print(build_fuzz_replay(force=args.force, verbose=True))
     except BuildError as e:
         sys.exit(str(e))
 
