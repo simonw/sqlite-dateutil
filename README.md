@@ -52,6 +52,28 @@ print(db.execute("select dateutil_parse('Sep 25 2003 5pm')").fetchone()[0])
 off again. `sqlite_dateutil.loadable_path()` gives the path to the bundled library for use
 with other tools.
 
+### Pyodide
+
+There's also a wheel for [Pyodide](https://pyodide.org/) 314.x (the PEP 783
+`pyemscripten_2026_0_wasm32` tag). Pyodide's `sqlite3` module can't load extensions, so in
+Pyodide `import sqlite_dateutil` registers the functions with SQLite's
+`sqlite3_auto_extension()` instead. Every connection opened **after the import** has them, and
+`load(conn)` just checks that:
+
+```python
+import micropip
+await micropip.install("sqlite-dateutil")
+
+import sqlite3
+import sqlite_dateutil  # import before connecting
+
+db = sqlite3.connect(":memory:")
+print(db.execute("select dateutil_parse('Sep 25 2003 5pm')").fetchone()[0])
+```
+
+Pyodide links in SQLite 3.39.0, older than the headers in `vendor/sqlite`, but the
+extension only uses APIs that SQLite had long before that version.
+
 There are also plugins that add the functions to every connection:
 
 ```bash
@@ -172,6 +194,7 @@ tools/build_wheels.py   packages the built extension as wheels, plus the plugin 
 fuzz/                   libFuzzer harness, dictionary and seed generator
 vendor/sqlite/          SQLite 3.53.2 public-domain headers
 tests/                  pytest differential test suite, plus wheel packaging tests
+tests/pyodide/          installs the Pyodide wheel with micropip under Node and checks it
 ```
 
 ## Releasing
@@ -191,3 +214,17 @@ uv run python tools/build_wheels.py --plugins  # datasette- and sqlite-utils- pl
 On macOS the wheel targets macOS 11 (arm64) or 10.13 (x86_64), unless
 `MACOSX_DEPLOYMENT_TARGET` says otherwise. The script refuses to package a binary built for
 a newer macOS than its wheel tag claims.
+
+The Pyodide wheel needs the exact Emscripten version that Pyodide's ABI uses (5.0.3 for
+Pyodide 314.x; see `PYODIDE_*` in `tools/build_wheels.py`):
+
+```bash
+./emsdk install 5.0.3 && ./emsdk activate 5.0.3 && source ./emsdk_env.sh
+uv run python tools/build_wheels.py --pyodide
+cd tests/pyodide && npm ci && node test.mjs ../../dist/sqlite_dateutil-*-pyemscripten_*.whl
+```
+
+`tests/pyodide/test.mjs` installs the wheel with micropip in Pyodide under Node. It then
+checks every hand-picked case against python-dateutil running there too. CI runs it on every
+push. A new Pyodide ABI means bumping `PYODIDE_ABI`, `PYODIDE_EMSCRIPTEN`, the emsdk
+commit in `test.yml` and the `pyodide` version in `tests/pyodide/package.json` together.

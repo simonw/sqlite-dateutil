@@ -3,6 +3,7 @@ Package the compiled extension as Python wheels, using only the standard library
 
     python tools/build_wheels.py              # sqlite-dateutil wheel for this platform
     python tools/build_wheels.py --plugins    # datasette-/sqlite-utils- plugin wheels
+    python tools/build_wheels.py --pyodide    # Pyodide wheel (needs emcc on PATH)
     python tools/build_wheels.py --plat macosx_10_13_x86_64 --binary path/to/dateutil_parse.dylib
 
 Wheels are written to dist/ (override with --out). Names, version, summary,
@@ -41,6 +42,7 @@ BASE_INIT_PY = '''\
 """Python helpers for the sqlite-dateutil SQLite extension."""
 import os.path
 import sqlite3
+import sys
 
 __version__ = "{version}"
 __version_info__ = tuple(__version__.split("."))
@@ -51,17 +53,52 @@ def loadable_path() -> str:
     return os.path.normpath(os.path.join(os.path.dirname(__file__), "{stem}"))
 
 
+if sys.platform == "emscripten":
+    # Pyodide's sqlite3 module is built without load_extension(). Its SQLite
+    # is linked into the main module, though, so register the extension with
+    # sqlite3_auto_extension(): every connection opened after this import
+    # gets the functions.
+    import ctypes
+
+    _lib = ctypes.CDLL(loadable_path() + "{suffix}")
+    _sqlite = ctypes.CDLL(None)
+    _sqlite.sqlite3_auto_extension.argtypes = [ctypes.c_void_p]
+    _sqlite.sqlite3_auto_extension.restype = ctypes.c_int
+    _rc = _sqlite.sqlite3_auto_extension(
+        ctypes.cast(_lib.sqlite3_dateutilparse_init, ctypes.c_void_p).value)
+    if _rc != 0:
+        raise ImportError("sqlite3_auto_extension() failed with code %d" % _rc)
+
+
 def load(conn: sqlite3.Connection) -> None:
     """Load the extension into conn.
 
     Extension loading is switched on for the call and back off afterwards.
+    In Pyodide the extension is registered when this module is imported, so
+    connections opened after the import already have the functions.
     """
+    if sys.platform == "emscripten":
+        try:
+            conn.execute("select dateutil_parse('')")
+        except sqlite3.OperationalError:
+            raise RuntimeError(
+                "In Pyodide, sqlite_dateutil must be imported before the "
+                "connection is opened: this connection predates the import"
+            ) from None
+        return
     conn.enable_load_extension(True)
     try:
         conn.load_extension(loadable_path())
     finally:
         conn.enable_load_extension(False)
 '''
+
+# Pyodide: wheels must be built with the exact Emscripten its ABI uses.
+# Pyodide 314.x is ABI 2026_0 with Emscripten 5.0.3; PEP 783's portable
+# pyemscripten_<abi>_wasm32 tag is what PyPI accepts and micropip installs.
+PYODIDE_ABI = "2026_0"
+PYODIDE_EMSCRIPTEN = "5.0.3"
+PYODIDE_TAG = f"pyemscripten_{PYODIDE_ABI}_wasm32"
 
 PLUGIN_INIT_PY = '''\
 from {framework_module} import hookimpl
@@ -138,6 +175,29 @@ def default_platform_tag():
     sys.exit(f"No default wheel tag for {sys.platform}/{machine}; pass --plat")
 
 
+def build_pyodide_binary():
+    """Compile the extension as an Emscripten side module that Pyodide can dlopen."""
+    emcc = os.environ.get("EMCC", "emcc")
+    try:
+        version = subprocess.run([emcc, "--version"], capture_output=True, text=True,
+                                 check=True).stdout.splitlines()[0]
+    except (OSError, subprocess.CalledProcessError, IndexError):
+        sys.exit(f"--pyodide needs Emscripten {PYODIDE_EMSCRIPTEN}: `{emcc}` not found. "
+                 f"Install it with emsdk (`./emsdk install {PYODIDE_EMSCRIPTEN}`).")
+    if f" {PYODIDE_EMSCRIPTEN} " not in version:
+        sys.exit(f"Pyodide ABI {PYODIDE_ABI} needs Emscripten {PYODIDE_EMSCRIPTEN}, "
+                 f"but `{emcc} --version` says: {version}")
+    out = build.BUILD / "pyodide" / "dateutil_parse.so"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    argv = [emcc, "-O2", "-fPIC", "-sSIDE_MODULE=1", *build.WARNINGS,
+            f"-I{build.VENDOR}", str(ROOT / "dateutil_parse.c"), "-o", str(out)]
+    print(" ".join(argv))
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit("Build failed:\n" + proc.stdout + proc.stderr)
+    return out
+
+
 def normalize(name):
     return name.replace("-", "_").lower()
 
@@ -208,8 +268,8 @@ def build_base_wheel(project, binary, tag, out_dir):
     check_macos_tag(binary, tag)
     wheel = Wheel(project["name"], project["version"], f"py3-none-{tag}")
     pkg = normalize(project["name"])
-    wheel.add(f"{pkg}/__init__.py",
-              BASE_INIT_PY.format(version=project["version"], stem=binary.stem))
+    wheel.add(f"{pkg}/__init__.py", BASE_INIT_PY.format(
+        version=project["version"], stem=binary.stem, suffix=binary.suffix))
     wheel.add(f"{pkg}/{binary.name}", binary.read_bytes(), executable=True)
     readme = (ROOT / project.get("readme", "README.md")).read_text("utf-8")
     return wheel.finish(out_dir, metadata(
@@ -245,11 +305,18 @@ def main():
     parser.add_argument("--plat", help="wheel platform tag (default: detect from this machine)")
     parser.add_argument("--plugins", action="store_true",
                         help="build the Datasette and sqlite-utils plugin wheels instead")
+    parser.add_argument("--pyodide", action="store_true",
+                        help=f"build the Pyodide wheel ({PYODIDE_TAG}) with emcc "
+                             f"{PYODIDE_EMSCRIPTEN}")
     args = parser.parse_args()
     project = read_project()
     if args.plugins:
         for prefix in PLUGINS:
             print(build_plugin_wheel(project, prefix, args.out))
+        return
+    if args.pyodide:
+        binary = args.binary or build_pyodide_binary()
+        print(build_base_wheel(project, binary, args.plat or PYODIDE_TAG, args.out))
         return
     if args.binary:
         binary = args.binary

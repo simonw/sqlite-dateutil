@@ -118,3 +118,21 @@ def test_rejects_macos_tag_older_than_binary(project, tmp_path):
         pytest.skip("binary already targets an ancient macOS")
     with pytest.raises(SystemExit, match="MACOSX_DEPLOYMENT_TARGET"):
         build_wheels.build_base_wheel(project, build.EXT_PATH, "macosx_10_9_x86_64", tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a shell script as a fake emcc")
+def test_pyodide_requires_matching_emscripten(tmp_path, monkeypatch):
+    fake = tmp_path / "emcc"
+    fake.write_text("#!/bin/sh\necho 'emcc (Emscripten gcc/clang-like replacement) 4.0.1 (abc)'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("EMCC", str(fake))
+    with pytest.raises(SystemExit, match=f"needs Emscripten {build_wheels.PYODIDE_EMSCRIPTEN}"):
+        build_wheels.build_pyodide_binary()
+
+
+def test_pyodide_wheel_tag(project, tmp_path):
+    path = build_wheels.build_base_wheel(project, build.EXT_PATH, build_wheels.PYODIDE_TAG, tmp_path)
+    assert path.name.endswith(f"-py3-none-pyemscripten_{build_wheels.PYODIDE_ABI}_wasm32.whl")
+    init = read_wheel(path)["sqlite_dateutil/__init__.py"].decode()
+    assert f'loadable_path() + "{build.EXT_PATH.suffix}"' in init
+    assert "sqlite3_auto_extension" in init
