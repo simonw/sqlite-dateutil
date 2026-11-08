@@ -1,0 +1,20 @@
+[project]
+name = "sqlite-dateutil"
+version = "0.1"
+description = "A SQLite extension porting dateutil.parser.parse() to C"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest", "python-dateutil"]
+
+[tool.uv]
+# Not a Python package: uv just manages the test environment.
+package = false
+# Always use a uv-managed Python. System Pythons (e.g. Apple's
+# /usr/bin/python3) may be built without SQLite extension loading.
+python-preference = "only-managed"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

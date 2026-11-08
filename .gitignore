@@ -2,3 +2,6 @@
 build
 *.dylib
 *.so
+*.dll
+.venv
+.pytest_cache

@@ -1,7 +1,6 @@
 import os
 import pathlib
 import sqlite3
-import subprocess
 import sys
 import time
 import warnings
@@ -13,13 +12,16 @@ import pytest
 # deliberately does not do; with TZ=UTC the only such name is "UTC",
 # which both treat as +00:00.
 os.environ["TZ"] = "UTC"
-time.tzset()
+if hasattr(time, "tzset"):  # not available on Windows
+    time.tzset()
 
 from dateutil.parser import parse  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXT_SUFFIX = "dylib" if sys.platform == "darwin" else "so"
-EXT_PATH = ROOT / f"dateutil_parse.{EXT_SUFFIX}"
+sys.path.insert(0, str(ROOT / "tools"))
+import build  # noqa: E402  (tools/build.py)
+
+EXT_PATH = build.EXT_PATH
 
 VARIANTS = {
     "dateutil_parse": {},
@@ -45,15 +47,22 @@ def ref(text, default=None, **kwargs):
         return None
 
 
-def _build():
-    src = ROOT / "dateutil_parse.c"
-    if not EXT_PATH.exists() or EXT_PATH.stat().st_mtime < src.stat().st_mtime:
-        subprocess.run(["make", "-C", str(ROOT)], check=True)
+def pytest_sessionstart(session):
+    """Compile the extension (if out of date) before any test runs."""
+    if not hasattr(sqlite3.Connection, "enable_load_extension"):
+        pytest.exit(
+            f"{sys.executable} was built without SQLite extension loading "
+            "(e.g. Apple's /usr/bin/python3). Run the tests with `uv run pytest`.",
+            returncode=1,
+        )
+    try:
+        build.build_extension()
+    except build.BuildError as e:
+        pytest.exit(str(e), returncode=1)
 
 
 @pytest.fixture(scope="session")
 def db():
-    _build()
     conn = sqlite3.connect(":memory:")
     conn.enable_load_extension(True)
     conn.load_extension(str(EXT_PATH.with_suffix("")))

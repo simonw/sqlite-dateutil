@@ -32,8 +32,15 @@ That also means the functions aren't marked deterministic.
 ## Building
 
 ```bash
-make            # builds dateutil_parse.so (or .dylib on macOS)
+uv run python tools/build.py    # or just: make
 ```
+
+This builds `dateutil_parse.dylib` on macOS, `.so` on Linux, or `.dll` on Windows. The
+build script uses only the Python standard library and picks the compiler from `$CC`, or
+falls back to `cc`. On Windows it uses MSVC `cl` from a Native Tools prompt, or MinGW `gcc` /
+`clang`. It compiles against the SQLite headers in `vendor/sqlite/`, never the system
+headers, because some system copies (notably the macOS SDK's `sqlite3ext.h`) turn off the
+loadable-extension API.
 
 ```
 sqlite> .load ./dateutil_parse
@@ -54,9 +61,14 @@ dependencies beyond the SQLite headers. The entry point is `sqlite3_dateutilpars
 ## Tests
 
 ```bash
-pip install python-dateutil pytest
-make test
+uv run pytest
 ```
+
+That is all you need: uv creates the environment, and the test suite compiles the extension
+first whenever it is missing or older than its sources. The project is set to use only
+uv-managed Pythons, because some system Pythons, such as Apple's `/usr/bin/python3`, are
+built without `enable_load_extension()`. The sanitizer tests are skipped when ASan/UBSan
+isn't available (for example with MSVC).
 
 The test suite (`tests/`) is differential: for every input it checks that the SQL functions
 return exactly what `dateutil.parser.parse(...).isoformat()` returns, or `NULL` where dateutil
@@ -116,5 +128,7 @@ dateutil_parse.c        the extension (port of dateutil/parser/_parser.py)
 dateutil_unicode.h      generated character-class table
 tools/gen_unicode.py    regenerates the table from Python's Unicode data
 tools/du_cli.c          SQLite-free driver used for sanitizer tests
+tools/build.py          cross-platform build script (used by the tests)
+vendor/sqlite/          SQLite 3.53.2 public-domain headers
 tests/                  pytest differential test suite
 ```

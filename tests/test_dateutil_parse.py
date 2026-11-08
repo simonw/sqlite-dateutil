@@ -6,7 +6,6 @@ raises), for hand-picked inputs and for tens of thousands of generated ones.
 import datetime
 import pathlib
 import random
-import shutil
 import struct
 import subprocess
 import time
@@ -14,6 +13,7 @@ import zlib
 
 import pytest
 
+import build
 from conftest import FLAGS, ROOT, VARIANTS, ref
 
 # --------------------------------------------------------------------------
@@ -355,13 +355,10 @@ def test_generated_match_dateutil(sql, fn):
 
 @pytest.fixture(scope="session")
 def asan_cli():
-    if shutil.which("make") is None:
-        pytest.skip("make not available")
-    proc = subprocess.run(["make", "-C", str(ROOT), "build/du_cli_asan"],
-                          capture_output=True)
-    if proc.returncode != 0:
-        pytest.skip("could not build sanitizer harness: " + proc.stderr.decode()[-500:])
-    return ROOT / "build" / "du_cli_asan"
+    try:
+        return build.build_asan()
+    except build.BuildError as e:
+        pytest.skip("could not build sanitizer harness: " + str(e)[-500:])
 
 
 def run_cli(cli, default, cur_year, records):

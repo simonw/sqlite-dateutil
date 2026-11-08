@@ -1,30 +1,18 @@
-CC ?= cc
-CFLAGS ?= -O2 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion
+# Convenience wrapper. The real build logic lives in tools/build.py (which
+# `uv run pytest` calls automatically); this Makefile just delegates to it
+# so there is one definition that works on macOS, Linux and Windows.
+UV ?= uv
 
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Darwin)
-  EXT = dylib
-  SHARED = -dynamiclib
-else
-  EXT = so
-  SHARED = -shared
-endif
+all:
+	$(UV) run python tools/build.py
 
-all: dateutil_parse.$(EXT)
+asan:
+	$(UV) run python tools/build.py --asan
 
-dateutil_parse.$(EXT): dateutil_parse.c dateutil_unicode.h
-	$(CC) $(CFLAGS) -fPIC $(SHARED) $< -o $@
-
-# Parser core with AddressSanitizer + UndefinedBehaviorSanitizer
-build/du_cli_asan: tools/du_cli.c dateutil_parse.c dateutil_unicode.h
-	mkdir -p build
-	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
-	  -fno-omit-frame-pointer $< -o $@
-
-test: dateutil_parse.$(EXT)
-	python3 -m pytest tests -v
+test:
+	$(UV) run pytest
 
 clean:
-	rm -rf dateutil_parse.so dateutil_parse.dylib build
+	rm -rf dateutil_parse.so dateutil_parse.dylib dateutil_parse.dll build
 
-.PHONY: all test clean
+.PHONY: all asan test clean
