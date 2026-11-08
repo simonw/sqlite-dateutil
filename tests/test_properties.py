@@ -83,11 +83,40 @@ moments = st.datetimes(
 )
 
 
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December"]
+
+
+def strftime(dt, fmt):
+    """Platform- and locale-independent subset of strftime. datetime.strftime
+    defers to the C library, which differs across platforms (Windows raises
+    ValueError for some inputs; glibc doesn't zero-pad %Y below 1000)."""
+    def offset():
+        off = dt.utcoffset()
+        if off is None:
+            return ""
+        mins = int(off.total_seconds()) // 60
+        sign = "-" if mins < 0 else "+"
+        return f"{sign}{abs(mins) // 60:02}{abs(mins) % 60:02}"
+
+    codes = {
+        "Y": f"{dt.year:04}", "y": f"{dt.year % 100:02}", "m": f"{dt.month:02}",
+        "d": f"{dt.day:02}", "H": f"{dt.hour:02}", "M": f"{dt.minute:02}",
+        "S": f"{dt.second:02}", "f": f"{dt.microsecond:06}",
+        "I": f"{(dt.hour % 12) or 12:02}", "p": "AM" if dt.hour < 12 else "PM",
+        "A": DAYS[dt.weekday()], "a": DAYS[dt.weekday()][:3],
+        "B": MONTHS[dt.month - 1], "b": MONTHS[dt.month - 1][:3],
+        "z": offset(), "%": "%",
+    }
+    return re.sub(r"%(.)", lambda m: codes[m.group(1)], fmt)
+
+
 @st.composite
 def formatted_dates(draw):
     """Real datetimes rendered in common formats, sometimes with noise."""
     moment = draw(moments)
-    text = moment.strftime(draw(st.sampled_from(FORMATS)))
+    text = strftime(moment, draw(st.sampled_from(FORMATS)))
     if draw(st.booleans()):
         text = draw(st.sampled_from(["", " ", "on ", "Due: ", "("])) + text \
             + draw(st.sampled_from(["", " ", " UTC", " Z", " GMT+3", ")", ", ok", " EST"]))
