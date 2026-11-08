@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "sqlite-dateutil"
-version = "0.1"
+version = "0.1a0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
