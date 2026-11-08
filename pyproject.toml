@@ -3,7 +3,7 @@ name = "sqlite-dateutil"
 version = "0.1"
 description = "A SQLite extension porting dateutil.parser.parse() to C"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]

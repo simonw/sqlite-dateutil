@@ -10,17 +10,15 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.platform.name }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        platform:
           - name: Linux (gcc)
             os: ubuntu-latest
-          - name: Linux (gcc, Python 3.10)
-            os: ubuntu-latest
-            python: "3.10"
           - name: macOS (clang)
             os: macos-latest
           - name: Windows (MSVC)
@@ -30,7 +28,7 @@ jobs:
             os: windows-latest
             cc: gcc
     env:
-      CC: ${{ matrix.cc }}  # empty means build.py picks the platform default
+      CC: ${{ matrix.platform.cc }}  # empty means build.py picks the platform default
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -39,7 +37,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Put MSVC on PATH
-        if: matrix.msvc
+        if: matrix.platform.msvc
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1.13.0
       - name: Build extension
         run: uv run python tools/build.py --force
