@@ -25,6 +25,8 @@ defaults:
 
 jobs:
   test:
+    # Shown as the prefix of every called job, e.g. "Tests / Linux (gcc), Python 3.11"
+    name: Tests
     uses: ./.github/workflows/test.yml
 
   wheels:

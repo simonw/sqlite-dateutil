@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.platform.name }} / Python ${{ matrix.python }}
+    name: ${{ matrix.platform.name }}, Python ${{ matrix.python }}
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
@@ -46,7 +46,7 @@ jobs:
         run: uv run pytest -rs
 
   pyodide:
-    name: Pyodide wheel (ABI ${{ matrix.abi }})
+    name: Pyodide ${{ matrix.abi }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
